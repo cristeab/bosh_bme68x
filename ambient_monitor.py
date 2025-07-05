@@ -1,65 +1,22 @@
 #!/usr/bin/env python3
 
-import os
-os.environ["BLINKA_FT232H"] = "1"
-try:
-    import board
-except ValueError as e:
-    print(e)
-    import sys
-    sys.exit(1)
-import adafruit_bme680
+from bme68x import BME68X
+import bme68xConstants as cnst
+import bsecConstants as bsec
 import time
 from datetime import datetime, timezone
+import logging
 
 
 class AmbientMonitor:
-    GAS_BASELINE_OHMS = 130000
-    HUMIDITY_BASELINE = 40.0 # 40% humidity is considered optimal
-    HUMIDITY_WEIGHT = 0.25 # humidity contributes 25% to the IAQ score
-
     def __init__(self):
+        self.logger = logging.getLogger("AmbientMonitor")
         self.elapsed_time = "N/A"
         self._start_time = None
-        i2c = board.I2C()  # Automatically uses FT232H as I2C if BLINKA_FT232H=1 is set
-        self._sensor = adafruit_bme680.Adafruit_BME680_I2C(i2c)
-        self._sensor.sea_level_pressure = 1013.25
-        self._sensor.humidity_oversample = 2
-        self._sensor.pressure_oversample = 4
-        self._sensor.temperature_oversample = 8
-        self._sensor.filter_size = 3
-        self._sensor.set_gas_heater(320, 150)  # 320 degrees C for 150 ms
 
-    def _calculate_iaq(self, gas_resistance, humidity):
-        # Calculate gas score (75% of total)
-        gas_ratio = gas_resistance / self.GAS_BASELINE_OHMS
-        gas_offset = self.GAS_BASELINE_OHMS - gas_resistance
-
-        # Calculate humidity score (25% of total)
-        hum_offset = humidity - self.HUMIDITY_BASELINE
-        hum_score = 0.0
-
-        if hum_offset > 0:
-            hum_score = (100 - self.HUMIDITY_BASELINE - hum_offset) / (100 - self.HUMIDITY_BASELINE)
-            hum_score *= (self.HUMIDITY_WEIGHT * 100)
-        else:
-            hum_score = (self.HUMIDITY_BASELINE + hum_offset) / self.HUMIDITY_BASELINE
-            hum_score *= (self.HUMIDITY_WEIGHT * 100)
-
-        # Different paths for calculating gas score depending on offset
-        if gas_offset > 0:
-            gas_score = gas_ratio * (100 * (1 - self.HUMIDITY_WEIGHT))
-        else:
-            # When air is cleaner than baseline
-            gas_score = min(75, 70 + (5 * (gas_ratio - 1)))
-
-        # Calculate IAQ percentage (0-100%, with 100% being cleanest)
-        iaq_percent = hum_score + gas_score
-
-        # Convert to 0-500 scale (0 = clean, 500 = very polluted)
-        iaq_score = (100 - iaq_percent) * 5
-
-        return iaq_score
+        self._sensor = BME68X(cnst.BME68X_I2C_ADDR_HIGH, 0)
+        self._sensor.set_sample_rate(bsec.BSEC_SAMPLE_RATE_LP)
+        self._sensor.set_heatr_conf(1, 320, 100, 1)  # 320°C for 100 ms, 1 profile
 
     def _update_elapsed_time(self, current_time):
         if self._start_time is None:
@@ -83,22 +40,24 @@ class AmbientMonitor:
             self.elapsed_time += f"{int(etime.total_seconds())} sec."
 
     def get_data(self):
-        timestamp = datetime.now(timezone.utc)
-        temperature = self._sensor.temperature
-        humidity = self._sensor.relative_humidity
-        pressure = self._sensor.pressure
-        gas_resistance = self._sensor.gas
-        if temperature is None or gas_resistance == 0:
+        try:
+            bsec_data = self._sensor.get_bsec_data()
+        except Exception as e:
+            self.logger.error("Error while reading sensor data:", e)
             return None
-        iaq = self._calculate_iaq(gas_resistance, humidity)
+        if bsec_data == {}:
+            self.logger.error("Empty sensor data:")
+            return None
+
+        timestamp = datetime.now(timezone.utc)
         self._update_elapsed_time(timestamp)
         return {
             'timestamp': timestamp,
-            'temperature': temperature,
-            'humidity': humidity,
-            'pressure': pressure,
-            'gas': gas_resistance,
-            'iaq': iaq if iaq is not None else 0
+            'temperature': bsec_data['temperature'] if 'temperature' in bsec_data else 0,
+            'humidity': bsec_data['humidity'] if 'humidity' in bsec_data else 0,
+            'pressure': bsec_data['raw_pressure'] / 100 if 'raw_pressure' in bsec_data else 0,  # Convert Pa to hPa
+            'gas': bsec_data['raw_gas'] if 'raw_gas' in bsec_data else 0,  # Ohms
+            'iaq': bsec_data['iaq'] if 'iaq' in bsec_data else 0,  # Indoor Air Quality
         }
 
 
@@ -114,4 +73,4 @@ if __name__ == "__main__":
                 f"Gas: {data['gas']} ohms, "
                 f"IAQ: {data['iaq']:.1f}",
                 flush=True)
-        time.sleep(1)
+        time.sleep(3)
