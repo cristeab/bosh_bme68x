@@ -46,7 +46,6 @@ class AmbientMonitor:
             self.logger.error("Error while reading sensor data:", e)
             return None
         if bsec_data == {}:
-            self.logger.error("Empty sensor data:")
             return None
 
         timestamp = datetime.now(timezone.utc)
