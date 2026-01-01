@@ -1,5 +1,5 @@
 # Bosh BME68x
-Read environmental data from the BME688 sensor. The sensor is connected to the USB port using an FT232H USB-to-I2C adapter.
+Read environmental data from the BME688 sensor. The sensor is connected on I2C bus.
 
 The Indoor Air Quality (IAQ) is computed from the gas resistance and humidity using a simplified version of the algorithm provided by Bosch Sensortec Environmental Cluster (BSEC) Software.
 
