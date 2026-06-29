@@ -39,6 +39,11 @@ class AmbientMonitor:
         else:
             self.elapsed_time += f"{int(etime.total_seconds())} sec."
 
+    @staticmethod
+    def _thom_discomfort_index(temperature, humidity):
+        # Calculate the Thom Discomfort Index
+        return temperature - 0.55 * (1 - humidity / 100) * (temperature - 14.5)
+
     def get_data(self):
         try:
             bsec_data = self._sensor.get_bsec_data()
@@ -57,6 +62,10 @@ class AmbientMonitor:
             'pressure': bsec_data['raw_pressure'] / 100 if 'raw_pressure' in bsec_data else 0,  # Convert Pa to hPa
             'gas': bsec_data['raw_gas'] if 'raw_gas' in bsec_data else 0,  # Ohms
             'iaq': bsec_data['iaq'] if 'iaq' in bsec_data else 0,  # Indoor Air Quality
+            'thom_discomfort_index': AmbientMonitor._thom_discomfort_index(
+                bsec_data['temperature'] if 'temperature' in bsec_data else 0,
+                bsec_data['humidity'] if 'humidity' in bsec_data else 0
+            )
         }
 
 
@@ -70,6 +79,7 @@ if __name__ == "__main__":
                 f"Humidity: {data['humidity']:.1f} %, "
                 f"Pressure: {data['pressure']:.1f} hPa, "
                 f"Gas: {data['gas']} ohms, "
-                f"IAQ: {data['iaq']:.1f}",
+                f"IAQ: {data['iaq']:.1f}, "
+                f"Thom Discomfort Index: {data['thom_discomfort_index']:.1f}",
                 flush=True)
         time.sleep(3)
